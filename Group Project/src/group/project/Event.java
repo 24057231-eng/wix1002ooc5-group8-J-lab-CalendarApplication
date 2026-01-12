@@ -10,6 +10,8 @@ public class Event {
     private String description;
     private String start_time;
     private String end_time;
+    private String location;
+    private String category;
     public Event(){
         
     }
@@ -30,11 +32,17 @@ public class Event {
     public String get_end_time(){
         return end_time;
     }
-    public void set_event_ID(int a){
-        event_ID=a;
+    public String get_location(){
+        return location;
+    }
+    public String get_category(){
+        return category;
     }
     
     //methods to set
+    public void set_event_ID(int a){
+        event_ID=a;
+    }
     public void set_title(String a){
         title=a;
     }
@@ -46,6 +54,12 @@ public class Event {
     }
     public void set_end_time(String a){
         end_time=a;
+    }
+    public void set_location(String a){
+        location=a;
+    }
+    public void set_category(String a){
+        category=a;
     }
     public static void main(String[] args) {
         // TODO code application logic here
