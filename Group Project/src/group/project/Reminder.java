@@ -4,6 +4,10 @@
  */
 package group.project;
 
+/**
+ *
+ * @author 星飞
+ */
 public class Reminder {
     private int eventId;
     private String time;

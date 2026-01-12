@@ -4,6 +4,10 @@
  */
 package group.project;
 
+/**
+ *
+ * @author 星飞
+ */
 public class Event {
     private int eventId;
     private String title;
