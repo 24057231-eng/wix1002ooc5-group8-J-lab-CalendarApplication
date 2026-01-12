@@ -11,7 +11,33 @@ import java.io.FileNotFoundException;
 import java.util.Scanner;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.List;
 public class File_IO {
+    // Helpers for attendees field (stored as comma-separated list)
+    private String serializeAttendees(List<String> attendees){
+        if(attendees == null || attendees.isEmpty()) return "";
+        // Trim and remove empty entries
+        ArrayList<String> cleaned = new ArrayList<>();
+        for(String s: attendees){
+            if(s == null) continue;
+            String t = s.trim();
+            if(!t.isEmpty()) cleaned.add(t);
+        }
+        return String.join(",", cleaned);
+    }
+    private ArrayList<String> parseAttendees(String raw){
+        ArrayList<String> list = new ArrayList<>();
+        if(raw == null) return list;
+        String r = raw.trim();
+        if(r.isEmpty()) return list;
+        String[] parts = r.split(",");
+        for(String p: parts){
+            String t = p.trim();
+            if(!t.isEmpty()) list.add(t);
+        }
+        return list;
+    }
+
     //Define the file path
     private static String path="event.csv";
     private static String rc_path="recurrent.csv";
@@ -25,7 +51,7 @@ public class File_IO {
     //Add "synchronized" to prevent conflicts in multi-threading.
     public synchronized void save_event(Event a){
         //Use object a to call its get method to obtain the attribute value
-        String event=a.get_event_ID()+"|"+a.get_title()+"|"+a.get_description()+"|"+a.get_start_time()+"|"+a.get_end_time()+"|"+a.get_location()+"|"+a.get_category();
+        String event=a.get_event_ID()+"|"+a.get_title()+"|"+a.get_description()+"|"+a.get_start_time()+"|"+a.get_end_time()+"|"+a.get_location()+"|"+a.get_category()+"|"+serializeAttendees(a.get_attendees());
         
         //Write "line" into the file
         try(FileWriter fw=new FileWriter(path,true)){// true represents enabling append mode
@@ -105,6 +131,13 @@ public class File_IO {
                         e.set_end_time(event[4]);
                         e.set_location(event[5]);
                         e.set_category(event[6]);
+                        // attendees is optional (for backward compatibility with older 7-field files)
+                        if(event.length >= 8){
+                            e.set_attendees(parseAttendees(event[7]));
+                        }else{
+                            e.set_attendees(new ArrayList<>());
+                        }
+
                         al.add(e);
                         
                         // Update ID cache
@@ -165,7 +198,7 @@ public class File_IO {
     public void rewrite_event(ArrayList<Event> allEvents){
         try(FileWriter fw=new FileWriter(path,false);PrintWriter pw=new PrintWriter(fw)){
             for(Event e: allEvents){
-                String event=e.get_event_ID()+"|"+e.get_title()+"|"+e.get_description()+"|"+e.get_start_time()+"|"+e.get_end_time()+"|"+e.get_location()+"|"+e.get_category();
+                String event=e.get_event_ID()+"|"+e.get_title()+"|"+e.get_description()+"|"+e.get_start_time()+"|"+e.get_end_time()+"|"+e.get_location()+"|"+e.get_category()+"|"+serializeAttendees(e.get_attendees());
                 pw.println(event);
             }
         }catch(IOException e){

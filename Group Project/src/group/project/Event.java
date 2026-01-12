@@ -4,6 +4,9 @@
  */
 package group.project;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class Event {
     private int event_ID;
     private String title;
@@ -12,6 +15,8 @@ public class Event {
     private String end_time;
     private String location;
     private String category;
+    // Additional Event Fields
+    private ArrayList<String> attendees = new ArrayList<>();
     public Event(){
         
     }
@@ -61,6 +66,28 @@ public class Event {
     public void set_category(String a){
         category=a;
     }
+
+    // ---- Attendees (comma-separated in storage) ----
+    public List<String> get_attendees(){
+        return attendees;
+    }
+    public void set_attendees(List<String> list){
+        attendees.clear();
+        if(list != null){
+            attendees.addAll(list);
+        }
+    }
+    public void add_attendee(String name){
+        if(name == null) return;
+        String n = name.trim();
+        if(!n.isEmpty()){
+            attendees.add(n);
+        }
+    }
+    public void clear_attendees(){
+        attendees.clear();
+    }
+
     public static void main(String[] args) {
         // TODO code application logic here
     }
