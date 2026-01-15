@@ -69,23 +69,12 @@ public class FileIOManager{
         return found;
     }
 
-    public boolean deleteEventFromCsv(int eventId) {
-    List<Event> allEvents = readAllEventsFromCsv();
-    boolean eventRemoved = allEvents.removeIf(e -> e.getEventId() == eventId);
-
-    if (eventRemoved) {
-        rewriteAllEvents(allEvents);
-
-        deleteRecurrentEventFromCsv(eventId);
-            
-        deleteReminderConfigFromCsv(eventId);
-        
-        System.out.println("Event " + eventId + " and its associated recurrent rules and reminders have been successfully cleared.");
-        return true;
+    public boolean deleteEventFromCsv(int eventId){
+        List<Event> all=readAllEventsFromCsv();
+        boolean removed=all.removeIf(e->e.getEventId()==eventId);
+        if(removed)rewriteAllEvents(all);
+        return removed;
     }
-    
-    return false;
-}
 
     private void rewriteAllEvents(List<Event> list){
         try(PrintWriter pw=new PrintWriter(new FileWriter(eventPath,false))){
@@ -248,20 +237,4 @@ public class FileIOManager{
             return false;
         }
     }
-    private void rewriteAllReminderConfigs(List<ReminderConfig> list) {
-    try (PrintWriter pw = new PrintWriter(new FileWriter(reminderPath, false))) {
-        for (ReminderConfig rc : list) {
-            pw.println(rc.getEventId() + "|" + rc.getRemindDuration() + "|" + rc.isEnable());
-        }
-    } catch (IOException e) {
-        System.err.println("Failed to rewrite reminder config file: " + e.getMessage());
-    }
-    }
-    public boolean deleteReminderConfigFromCsv(int eventId) {
-    List<ReminderConfig> all = readAllReminderConfigs();
-    boolean removed = all.removeIf(rc -> rc.getEventId() == eventId);
-    if (removed) {
-        rewriteAllReminderConfigs(all);
-    }
-    return removed;
 }
