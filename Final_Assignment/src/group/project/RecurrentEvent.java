@@ -27,6 +27,14 @@ public class RecurrentEvent {
     public void setRecurrentTimes(int recurrentTimes) { this.recurrentTimes = recurrentTimes; }
     public void setRecurrentEndDate(String recurrentEndDate) { this.recurrentEndDate = recurrentEndDate; }
 
+    /**
+     * Compatibility setter for FileIOManager.java which may pass a LocalDate when reading CSV.
+     * We still store it as an ISO-8601 String (yyyy-MM-dd) to keep write/concat logic stable.
+     */
+    public void setRecurrentEndDate(LocalDate recurrentEndDate) {
+        this.recurrentEndDate = (recurrentEndDate == null) ? null : recurrentEndDate.toString();
+    }
+
     public boolean isEnabled() {
         return recurrentInterval != null && !recurrentInterval.trim().isEmpty();
     }
