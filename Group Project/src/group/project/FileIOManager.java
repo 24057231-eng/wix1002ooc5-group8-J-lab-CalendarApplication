@@ -110,7 +110,11 @@ public class FileIOManager{
                     re.setEventId(Integer.parseInt(p[0]));
                     re.setRecurrentInterval(p[1]);
                     re.setRecurrentTimes(Integer.parseInt(p[2]));
-                    re.setRecurrentEndDate(p[3]);
+                    if (p[3] != null && !p[3].equalsIgnoreCase("null")) {
+                        re.setRecurrentEndDate(LocalDate.parse(p[3])); 
+                    } else {
+                        re.setRecurrentEndDate(null);
+                    }
                     list.add(re);
                 }
             }
@@ -173,7 +177,15 @@ public class FileIOManager{
                 if(p.length>=3){
                     ReminderConfig rc=new ReminderConfig();
                     rc.setEventId(Integer.parseInt(p[0]));
-                    rc.setRemindDuration(p[1]);
+                    String durationStr = p[1];
+                    if (durationStr != null && !durationStr.equalsIgnoreCase("null") && !durationStr.isEmpty()) {
+                        try {
+                            rc.setRemindDuration(Duration.parse(durationStr));
+                        } catch (DateTimeParseException e) {
+                            System.err.println("Reminder interval format is incorrect. Please use the default value (30 minutes): " + durationStr);
+                            rc.setRemindDuration(Duration.ofMinutes(30)); 
+                        }
+                    }
                     rc.setEnable(Boolean.parseBoolean(p[2]));
                     list.add(rc);
                 }
@@ -205,36 +217,55 @@ public class FileIOManager{
         }
     }
 
-    public boolean restoreData(String path,boolean isCoverExisting){
-        File f=new File(path);
-        if(!f.exists())return false;
+    public boolean restoreData(String path, boolean isCoverExisting) {
+    File f = new File(path);
+    if (!f.exists()) return false;
 
-        if(isCoverExisting){
-            try{
-                new PrintWriter(eventPath).close();
-                new PrintWriter(recurrentPath).close();
-                new PrintWriter(reminderPath).close();
-            }catch(Exception e){}
-        }
-
-        try(Scanner s=new Scanner(f);PrintWriter evWriter=new PrintWriter(new FileWriter(eventPath,true));PrintWriter rcWriter=new PrintWriter(new FileWriter(recurrentPath,true));PrintWriter rmWriter=new PrintWriter(new FileWriter(reminderPath,true))){
-            String section="";
-            while(s.hasNextLine()){
-                String line=s.nextLine().trim();
-                if(line.isEmpty())continue;
-
-                if(line.equalsIgnoreCase("Event")){section="EV";continue;}
-                if(line.equalsIgnoreCase("Recurrent")){section="RC";continue;}
-                if(line.equalsIgnoreCase("Reminder")){section="RM";continue;}
-
-                if(section.equals("EV"))evWriter.println(line);
-                else if(section.equals("RC"))rcWriter.println(line);
-                else if(section.equals("RM"))rmWriter.println(line);
-            }
-            return true;
-        }catch(IOException e){
-            System.err.println(e.getMessage());
+    if (isCoverExisting) {
+        try {
+            new PrintWriter(eventPath).close();
+            new PrintWriter(recurrentPath).close();
+            new PrintWriter(reminderPath).close();
+        } catch (IOException e) {
+            System.err.println("Failed to clear the original file: " + e.getMessage());
             return false;
+        }
+    }
+
+    try (Scanner s = new Scanner(f)) {
+        String section = "";
+        
+        while (s.hasNextLine()) {
+            String line = s.nextLine().trim();
+            if (line.isEmpty()) continue;
+
+            // 识别当前数据段
+            if (line.equalsIgnoreCase("Event")) { section = "EV"; continue; }
+            if (line.equalsIgnoreCase("Recurrent")) { section = "RC"; continue; }
+            if (line.equalsIgnoreCase("Reminder")) { section = "RM"; continue; }
+
+
+            switch (section) {
+                case "EV":
+                    writeLineToFile(eventPath, line);
+                    break;
+                case "RC":
+                    writeLineToFile(recurrentPath, line);
+                    break;
+                case "RM":
+                    writeLineToFile(reminderPath, line);
+                    break;
+            }
+        }
+        return true;
+    } catch (IOException e) {
+        System.err.println("Data recovery failed:" + e.getMessage());
+        return false;
+    }
+    }
+    private void writeLineToFile(String filePath, String line) throws IOException {
+        try (PrintWriter pw = new PrintWriter(new FileWriter(filePath, true))) {
+            pw.println(line);
         }
     }
 }
