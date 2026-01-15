@@ -13,6 +13,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
+import org.w3c.dom.events.Event;
+
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+
 public class FileIOManager{
     private final String eventPath="event.csv";
     private final String recurrentPath="recurrent.csv";
@@ -113,7 +119,7 @@ public class FileIOManager{
                     if (p[3] != null && !p[3].equalsIgnoreCase("null")) {
                         re.setRecurrentEndDate(LocalDate.parse(p[3])); 
                     } else {
-                        re.setRecurrentEndDate(null);
+                        re.setRecurrentEndDate((LocalDate) null);
                     }
                     list.add(re);
                 }
@@ -156,7 +162,8 @@ public class FileIOManager{
     }
 
     public synchronized void writeReminderConfigToFile(ReminderConfig rc){
-        String line=rc.getEventId()+"|"+rc.getRemindDuration()+"|"+rc.isEnable();
+        String dStr = rc.getRemindDuration().toString();
+        String line = rc.getEventId() + "|" + dStr + "|" + rc.isEnable();
         try(PrintWriter pw=new PrintWriter(new FileWriter(reminderPath,true))){
             pw.println(line);
         }catch(IOException e){
@@ -238,8 +245,6 @@ public class FileIOManager{
         while (s.hasNextLine()) {
             String line = s.nextLine().trim();
             if (line.isEmpty()) continue;
-
-            // 识别当前数据段
             if (line.equalsIgnoreCase("Event")) { section = "EV"; continue; }
             if (line.equalsIgnoreCase("Recurrent")) { section = "RC"; continue; }
             if (line.equalsIgnoreCase("Reminder")) { section = "RM"; continue; }
