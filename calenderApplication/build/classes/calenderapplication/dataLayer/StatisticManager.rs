@@ -1,0 +1,1 @@
+calendarApplication.businessLogic.StatisticManager
