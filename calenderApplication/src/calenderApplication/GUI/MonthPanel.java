@@ -31,7 +31,6 @@ public class MonthPanel extends JPanel {
         title.setFont(new Font("SansSerif", Font.BOLD, 18));
         title.setBorder(BorderFactory.createEmptyBorder(5, 5, 10, 5));
         add(title, BorderLayout.NORTH);
-
         JPanel dayGrid = new JPanel(new GridLayout(0, 7));
         dayGrid.setOpaque(false);
 
@@ -56,10 +55,8 @@ public class MonthPanel extends JPanel {
             }
 
             btn.addActionListener(e -> {
-
-                EventEditDialog dialog = new EventEditDialog(owner, date, manager, reminderManager);
-                dialog.setVisible(true);
-                
+                EventListDialog listDialog = new EventListDialog(owner, date, manager, reminderManager);
+                listDialog.setVisible(true);
                 //  After the dialog box is closed, recheck the data status and refresh the UI
                 refreshDayButton(btn, date);
             });
@@ -71,16 +68,10 @@ public class MonthPanel extends JPanel {
     /**
      * Auxiliary method: Check if there are any events on a specific date
      */
-    private boolean checkHasEvents(LocalDate date) {
-        try {
-            Object result = manager.getEventsForDate(date);
-            if (result instanceof List) {
-                return !((List<?>) result).isEmpty();
-            }
-        } catch (Exception e) {
-            return false;
-        }
-        return false;
+private boolean checkHasEvents(LocalDate date) {
+        if (manager == null) return false;
+        List<calenderApplication.businessLogic.Event> events = manager.getEventsForDate(date);
+        return events != null && !events.isEmpty();
     }
 
     /**
@@ -89,13 +80,13 @@ public class MonthPanel extends JPanel {
     private void refreshDayButton(DayButton btn, LocalDate date) {
         boolean hasEvents = checkHasEvents(date);
         btn.setHasEvents(hasEvents);
-        btn.repaint();
+        btn.repaint(); 
     }
 
     /**
      * Internal class: Date button with event indicator dot
      */
-    private static class DayButton extends JButton {
+private static class DayButton extends JButton {
         private boolean hasEvents;
 
         public DayButton(String text, boolean hasEvents) {
@@ -114,12 +105,16 @@ public class MonthPanel extends JPanel {
 
         @Override
         protected void paintComponent(Graphics g) {
+            if (getModel().isPressed()) {
+                g.setColor(new Color(60, 60, 60));
+                g.fillOval(5, 5, getWidth() - 10, getHeight() - 10);
+            }
+            
             super.paintComponent(g);
             if (hasEvents) {
                 Graphics2D g2d = (Graphics2D) g;
                 g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2d.setColor(new Color(150, 150, 150));
-                // Draw small dots below the button
+                g2d.setColor(new Color(150, 150, 150)); 
                 g2d.fillOval((getWidth() - 4) / 2, getHeight() - 10, 4, 4);
             }
         }
