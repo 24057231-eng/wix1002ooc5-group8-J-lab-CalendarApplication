@@ -4,7 +4,7 @@
  */
 package calenderApplication.GUI;
 
-import calenderApplication.businessLogic.Event; // 解决与 java.awt.Event 的冲突
+import calenderApplication.businessLogic.Event; 
 import calenderApplication.businessLogic.EventManager;
 import calenderApplication.businessLogic.ReminderManager;
 import calenderApplication.businessLogic.RecurrentEvent;
