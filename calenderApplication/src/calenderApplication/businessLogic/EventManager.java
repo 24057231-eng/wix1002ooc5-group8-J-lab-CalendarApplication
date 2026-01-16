@@ -5,208 +5,178 @@ import calenderApplication.dataLayer.FileIOManager;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class EventManager {
     private final FileIOManager ioManager;
     private ReminderManager reminderManager;
+    
+    // 内存缓存：Key 为 EventID
+    private final Map<Integer, Event> eventCache = new HashMap<>();
     private final Map<Integer, RecurrentEvent> recurrentRulesByEventId = new HashMap<>();
 
     public EventManager(FileIOManager ioManager) {
         this.ioManager = ioManager;
+        loadDataIntoMemory();
+    }
+    
+    private void loadDataIntoMemory() {
+        eventCache.clear();
+        ioManager.readAllEventsFromCsv().forEach(e -> eventCache.put(e.getEventId(), e));
 
-        // load from recurrent.csv (no more memory compensation)
+        recurrentRulesByEventId.clear();
         ioManager.readAllRecurrentEventsFromCsv().forEach(r -> {
             recurrentRulesByEventId.put(r.getEventId(), r);
         });
     }
 
-    public boolean createEvent(Event event, RecurrentEvent recurrentEvent) {
+public boolean createEvent(Event event, RecurrentEvent recurrentEvent) {
         if (!isEventValidForCreate(event)) return false;
 
-        // Optional: conflict check
+        // 冲突检查（基于内存）
         if (!checkEventConflict(event).isEmpty()) return false;
 
+        // 分配 ID 并写入文件
         int newId = EventIdGenerator.generateNextEventId();
         event.setEventId(newId);
         ioManager.writeEventToCsv(event);
+        
+        // 更新内存缓存
+        eventCache.put(newId, event);
 
         if (recurrentEvent != null && recurrentEvent.isEnabled()) {
             recurrentEvent.setEventId(newId);
-            recurrentRulesByEventId.put(newId, recurrentEvent);
             ioManager.writeRecurrentEventToCsv(recurrentEvent);
+            recurrentRulesByEventId.put(newId, recurrentEvent);
         }
         return true;
     }
 
-    public boolean updateEvent(Event updatedEvent, RecurrentEvent newRecurrentRule) {
-        if (updatedEvent == null || updatedEvent.getEventId() <= 0) return false;
-        if (!updatedEvent.isTimeValid()) return false;
-        if (updatedEvent.getTitle() == null || updatedEvent.getTitle().trim().isEmpty()) return false;
+public boolean updateEvent(Event event, RecurrentEvent recurrent) {
+        if (!isEventValidForCreate(event)) return false;
 
-        // conflict check ignore itself
-        List<Event> conflicts = checkEventConflict(updatedEvent);
-        conflicts.removeIf(e -> e.getEventId() == updatedEvent.getEventId());
-        if (!conflicts.isEmpty()) return false;
-
-        boolean ok = ioManager.updateEventInCsv(updatedEvent);
-        if (!ok) return false;
-
-        int id = updatedEvent.getEventId();
-
-        if (newRecurrentRule != null && newRecurrentRule.isEnabled()) {
-            newRecurrentRule.setEventId(id);
-            recurrentRulesByEventId.put(id, newRecurrentRule);
-
-            // persistent update: try update first, if not found then append
-            boolean updated = ioManager.updateRecurrentEventInCsv(newRecurrentRule);
-            if (!updated) ioManager.writeRecurrentEventToCsv(newRecurrentRule);
-
-        } else {
-            recurrentRulesByEventId.remove(id);
-            ioManager.deleteRecurrentEventFromCsv(id);
+        if (ioManager.updateEventInCsv(event)) {
+            eventCache.put(event.getEventId(), event); // 刷新内存
+            
+            if (recurrent != null) {
+                recurrent.setEventId(event.getEventId());
+                ioManager.updateRecurrentEventInCsv(recurrent);
+                recurrentRulesByEventId.put(event.getEventId(), recurrent);
+            }
+            return true;
         }
-
-        return true;
+        return false;
     }
 
-    public boolean deleteEvent(int eventId, boolean isDeleteEntireSeries) {
-        if (eventId <= 0) return false;
+public boolean deleteEvent(int eventId) {
+        boolean deleted = ioManager.deleteEventFromCsv(eventId);
+        if (deleted) {
+            // 同步清理内存
+            eventCache.remove(eventId);
+            recurrentRulesByEventId.remove(eventId);
+            ioManager.deleteRecurrentEventFromCsv(eventId);
+            
+            if (this.reminderManager != null) {
+                this.reminderManager.deleteReminder(eventId);
+            }
+            return true;
+        }
+        return false;
+    }
 
-        boolean ok = ioManager.deleteEventFromCsv(eventId);
-        if (!ok) return false;
-
-        // current storage is series-based: delete rule as well
-        recurrentRulesByEventId.remove(eventId);
-        ioManager.deleteRecurrentEventFromCsv(eventId);
-        return true;
+    public List<Event> getEventsForDate(LocalDate date) {
+        return getAllEventsExpanded().stream()
+            .filter(e -> e.getStartDateTimeAsLdt() != null && 
+                         e.getStartDateTimeAsLdt().toLocalDate().equals(date))
+            .collect(Collectors.toList());
+    }
+    
+    public List<Event> getAllEventsExpanded() {
+        List<Event> expanded = new ArrayList<>(eventCache.values());
+        for (Event base : eventCache.values()) {
+            RecurrentEvent rule = recurrentRulesByEventId.get(base.getEventId());
+            if (rule != null && rule.isEnabled()) {
+                expanded.addAll(generateRecurrentEvents(base, rule));
+            }
+        }
+        return expanded;
     }
 
     // --- recurrent generation (end <= endDate) ---
-    public List<Event> generateRecurrentEvents(Event baseEvent, RecurrentEvent recurrentRule) {
-        if (baseEvent == null || recurrentRule == null || !recurrentRule.isEnabled()) return Collections.emptyList();
-        if (baseEvent.getStartDateTimeAsLdt() == null || baseEvent.getEndDateTimeAsLdt() == null) return Collections.emptyList();
+private List<Event> generateRecurrentEvents(Event base, RecurrentEvent rule) {
+        List<Event> results = new ArrayList<>();
+        int days = parseIntervalToDays(rule.getRecurrentInterval());
+        if (days <= 0) return results;
 
-        int stepDays = parseIntervalToDays(recurrentRule.getRecurrentInterval());
-        if (stepDays <= 0) return Collections.emptyList();
-
-        List<Event> result = new ArrayList<>();
-        result.add(cloneWithShift(baseEvent, 0)); // base occurrence
-
-        int times = recurrentRule.getRecurrentTimes();
-        LocalDate endDate = recurrentRule.getRecurrentEndDateAsLocalDate();
-
-        // by times (if >0)
-        if (times > 0) {
-            for (int i = 1; i < times; i++) {
-                result.add(cloneWithShift(baseEvent, stepDays * i));
-            }
-            return result;
+        // 从 1 开始，因为 0 是基础事件本身
+        for (int i = 1; i < rule.getRecurrentTimes(); i++) {
+            results.add(cloneWithShift(base, i * days));
         }
-
-        // by end date (end <= endDate)
-        if (endDate != null) {
-            LocalDateTime baseEnd = baseEvent.getEndDateTimeAsLdt();
-            int i = 1;
-            while (true) {
-                LocalDateTime nextEnd = baseEnd.plusDays((long) stepDays * i);
-                if (nextEnd.toLocalDate().isAfter(endDate)) break;
-                result.add(cloneWithShift(baseEvent, stepDays * i));
-                i++;
-            }
-        }
-
-        return result;
+        return results;
     }
 
-    public List<Event> checkEventConflict(Event newEvent) {
-        if (newEvent == null || newEvent.getStartDateTimeAsLdt() == null || newEvent.getEndDateTimeAsLdt() == null) {
-            return Collections.emptyList();
-        }
+public List<Event> checkEventConflict(Event newEvent) {
+        LocalDateTime newStart = newEvent.getStartDateTimeAsLdt();
+        LocalDateTime newEnd = newEvent.getEndDateTimeAsLdt();
+        if (newStart == null || newEnd == null) return Collections.emptyList();
 
-        List<Event> all = getAllEventsExpanded();
-        List<Event> conflicts = new ArrayList<>();
-
-        for (Event e : all) {
-            if (e.getStartDateTimeAsLdt() == null || e.getEndDateTimeAsLdt() == null) continue;
-
-            boolean overlap = newEvent.getStartDateTimeAsLdt().isBefore(e.getEndDateTimeAsLdt())
-                    && e.getStartDateTimeAsLdt().isBefore(newEvent.getEndDateTimeAsLdt());
-            if (overlap) conflicts.add(e);
-        }
-        return conflicts;
+        return eventCache.values().stream()
+            .filter(ex -> {
+                // 排除正在编辑的事件本身
+                if (ex.getEventId() == newEvent.getEventId()) return false;
+                LocalDateTime exStart = ex.getStartDateTimeAsLdt();
+                LocalDateTime exEnd = ex.getEndDateTimeAsLdt();
+                return exStart != null && exEnd != null && 
+                       newStart.isBefore(exEnd) && exStart.isBefore(newEnd);
+            })
+            .collect(Collectors.toList());
     }
 
-    public List<Event> getAllBaseEvents() {
-        return ioManager.readAllEventsFromCsv();
+    public Collection<Event> getAllBaseEvents() {
+        return eventCache.values();
     }
 
     public RecurrentEvent getRecurrentRule(int eventId) {
         return recurrentRulesByEventId.get(eventId);
     }
 
-    public List<Event> getAllEventsExpanded() {
-        List<Event> base = getAllBaseEvents();
-        List<Event> expanded = new ArrayList<>();
-        for (Event e : base) {
-            RecurrentEvent rule = recurrentRulesByEventId.get(e.getEventId());
-            if (rule != null && rule.isEnabled()) expanded.addAll(generateRecurrentEvents(e, rule));
-            else expanded.add(e);
-        }
-        return expanded;
-    }
-
-    private boolean isEventValidForCreate(Event event) {
-        if (event == null) return false;
-        if (event.getTitle() == null || event.getTitle().trim().isEmpty()) return false;
-        return event.isTimeValid();
-    }
-
+    // --- 辅助私有方法 ---
+    
     private int parseIntervalToDays(String interval) {
-        if (interval == null) return -1;
-        String s = interval.trim().toLowerCase();
-        try {
-            if (s.endsWith("d")) return Integer.parseInt(s.substring(0, s.length() - 1));
-            if (s.endsWith("w")) return 7 * Integer.parseInt(s.substring(0, s.length() - 1));
-        } catch (Exception ignored) {}
-        return -1;
+        if (interval == null) return 0;
+        switch (interval.toLowerCase()) {
+            case "1d": return 1;
+            case "1w": return 7;
+            case "2w": return 14;
+            case "4w": return 28;
+            default: return 0;
+        }
     }
-
+    
     private Event cloneWithShift(Event base, int shiftDays) {
         Event e = new Event();
-        e.setEventId(base.getEventId()); // series id
-        e.setTitle(base.getTitle());
+        e.setEventId(base.getEventId());
+        e.setTitle(base.getTitle() + " (R)"); // 标记为重复生成的
         e.setDescription(base.getDescription());
         e.setLocation(base.getLocation());
         e.setCategory(base.getCategory());
         e.setAttendees(new ArrayList<>(base.getAttendees()));
 
-        if (base.getStartDateTimeAsLdt() != null) e.setStartDateTime(base.getStartDateTimeAsLdt().plusDays(shiftDays));
-        if (base.getEndDateTimeAsLdt() != null) e.setEndDateTime(base.getEndDateTimeAsLdt().plusDays(shiftDays));
+        if (base.getStartDateTimeAsLdt() != null) 
+            e.setStartDateTime(base.getStartDateTimeAsLdt().plusDays(shiftDays));
+        if (base.getEndDateTimeAsLdt() != null) 
+            e.setEndDateTime(base.getEndDateTimeAsLdt().plusDays(shiftDays));
         return e;
     }
 
-    public Object getEventsForDate(LocalDate date) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    private boolean isEventValidForCreate(Event e) {
+        return e != null && e.getTitle() != null && !e.getTitle().trim().isEmpty()
+               && e.getStartDateTimeAsLdt() != null && e.getEndDateTimeAsLdt() != null
+               && e.getEndDateTimeAsLdt().isAfter(e.getStartDateTimeAsLdt());
     }
-    // --- EventManager.java ---
 
-
-public boolean deleteEvent(int eventId) {
-    // Delete the records in the main event file
-    boolean deleted = ioManager.deleteEventFromCsv(eventId);
-    
-    if (deleted) {
-        // Logical Linkage: Remove duplicate rules (memory + files)
-        recurrentRulesByEventId.remove(eventId);
-        ioManager.deleteRecurrentEventFromCsv(eventId);
-        
-        if (this.reminderManager != null) {
-            this.reminderManager.deleteReminder(eventId);
-        } else {
-            ioManager.deleteReminderConfigFromCsv(eventId);
-        }
+    public void setReminderManager(ReminderManager rm) {
+        this.reminderManager = rm;
     }
     
-    return deleted;
-}
 }
